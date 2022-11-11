@@ -1,0 +1,238 @@
+---
+title: "Biostatistics_course"
+author: "Chidimma Echebiri"
+date: "2022-11-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+library(mlmRev)
+library(lme4)
+library(rstanarm)
+library(ggplot2)
+
+```
+
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+````{r}
+bike_data <- readr::read_csv("./bikerides_day.csv")
+summary(bike_data)
+````
+Some data wrangling. Changing the date format to represent only year and momth
+```{r}
+rownames(bike_data) = bike_data$Date
+bike_data$Date <- as.Date(bike_data$Date, format = "%Y-%m-%d")
+bike_data$Date <- format(bike_data$Date, "%Y-%m")
+
+```
+
+Plot the distribution of the bike data
+Volume = number of bikes in a day
+Rain is the depth of rainfall per day
+Temperature is the temperature that day
+```{r}
+plot(bike_data)
+```
+
+Remove any missing data
+```{r}
+bike_data <- bike_data[complete.cases(bike_data),]
+
+```
+````{r}
+date <- as.integer(factor(bike_data$Date))
+str(bike_data)
+````
+
+Fitting the model using lmer and no predictor
+````{r}
+Model1 <- lmer(formula = Volume ~ 1 + (1 | Date), 
+           data = bike_data, 
+           REML = F)
+summary(Model1)
+````
+##Varying intercept model with one predictor "Temperature"
+````{r}
+Model2 <- lmer(formula = Volume ~ 1 + Temp + (1 | Date),
+               data = bike_data,
+               REML = F)
+summary(Model2)
+````
+The average regression line across the years is estimated as   μ^ij=1938.92+99.71xij, with σα and σy estimated as 1344 and 1443 respectively. 
+These date specific regression lines are based on partial pooling estimates
+
+Extract random effects from the Date. This estimates how the intercept is shifted up or down on particular months of the year.For instance in November 2016, (2016_11), the intercept is about 668 times higher than average
+````{r}
+ranef(Model2)$Date
+````
+
+Modelling using both temperature and rainfall as predictors
+````{r}
+Model3 <- lmer(formula = Volume ~ 1 + Temp + Rain +(1 | Date),
+               data = bike_data,
+               REML = F)
+summary(Model3)
+````
+####Bayesian inference
+````{r}
+Model1_Stan <- stan_lmer(formula = Volume ~ 1 + Temp + Rain + (1 | Date), 
+           data = bike_data, 
+           seed = 1234)
+````
+Obtain summary of priors used
+````{r}
+prior_summary(object = Model1_Stan)
+````
+Display of summary of fit from model
+````{r}
+print(Model1_Stan, digits = 2)
+````
+Mean and standard deviation of the posterior distribution
+
+````{r}
+summary(Model1_Stan, 
+        pars = c("(Intercept)", "sigma", "Sigma[school:(Intercept),(Intercept)]"),
+        probs = c(0.025, 0.975),
+        digits = 2)
+````
+Extract the posterior draws for all parameters
+````{r}
+post_draws <- as.matrix(Model1_Stan)
+dim(post_draws)
+````
+````{r}
+para_name <- colnames(post_draws)
+para_name
+````
+obtain date level varying intercept 
+````{r}
+mu_a_post_draw <- as.matrix(Model1_Stan, pars = "(Intercept)") #draws for overall mean
+
+u_post_draw <- as.matrix(Model1_Stan, regex_pars = "b\\[\\(Intercept\\) Date\\:") # draws for all dates, date level error
+
+a_post_draw <- as.numeric(mu_a_post_draw) + u_post_draw #draws for varying intercepts in the dates
+
+#draws for sigma_y
+s_y_post_draw <- as.matrix(Model1_Stan, pars = "sigma")
+# draws for sigma_alpha^2
+s_alpha_post_draw <- as.matrix(Model1_Stan, 
+                           pars = "Sigma[Date:(Intercept),(Intercept)]")
+````
+
+Compute mean, SD, median and 95% credible interval of varying intercepts
+
+````{r}
+# Posterior mean and SD of each alpha
+a_mean <- apply(X = a_post_draw,     # posterior mean
+                MARGIN = 2,
+                FUN = mean)
+a_sd <- apply(X = a_post_draw,       # posterior SD
+              MARGIN = 2,
+              FUN = sd)
+
+# Posterior median and 95% credible interval
+a_quant <- apply(X = a_post_draw, 
+                 MARGIN = 2, 
+                 FUN = quantile, 
+                 probs = c(0.025, 0.50, 0.975))
+a_quant <- data.frame(t(a_quant))
+names(a_quant) <- c("Q2.5", "Q50", "Q97.5")
+
+# Combine summary statistics of posterior simulation draws
+a_df <- data.frame(a_mean, a_sd, a_quant)
+round(head(a_df), 2)
+````
+
+A caterpillar plot to show the fully Bayes estimates of the varying intecepts in rank order, with their 97.5% credible intervals
+````{r}
+# Sort dataframe containing an estimated alpha's mean and sd for every date
+a_df <- a_df[order(a_df$a_mean), ]
+a_df$a_rank <- c(1 : dim(a_df)[1])  # a vector of school rank 
+
+# Plot school-level alphas's posterior mean and 97% credible interval
+ggplot(data = a_df, 
+       aes(x = a_rank, 
+           y = a_mean)) +
+  geom_pointrange(aes(ymin = Q2.5, 
+                      ymax = Q97.5),
+                  position = position_jitter(width = 0.1, 
+                                             height = 0)) + 
+  geom_hline(yintercept = mean(a_df$a_mean), 
+             linewidth = 0.5, 
+             col = "red") + 
+  scale_x_continuous("Rank", 
+                     breaks = seq(from = 0, 
+                                  to = 80, 
+                                  by = 5)) + 
+  scale_y_continuous(expression(paste("varying intercept, ", alpha[j]))) + 
+  theme_bw( base_family = "serif")
+````
+Making comparisons between the years. 
+2016 had only two months, so I will compare 2017 to 2018, and 2019 to 2020
+
+````{r}
+year_diff_17_18 <- a_post_draw[2, 14]- a_post_draw[15, 26]
+# Investigate differences of two distributions
+mean <- mean(year_diff_17_18)
+sd <- sd(year_diff_17_18)
+quantile <- quantile(year_diff_17_18, probs = c(0.025, 0.50, 0.975))
+quantile <- data.frame(t(quantile))
+names(quantile) <- c("Q2.5", "Q50", "Q97.5")
+diff_df <- data.frame(mean, sd, quantile)
+round(diff_df, 2)
+````
+
+````{r}
+# Histogram of the differences
+ggplot(data = data.frame(year_diff_17_18), 
+       aes(x = year_diff_17_18)) + 
+  geom_histogram(color = "black", 
+                 fill = "gray", 
+                 binwidth = 0.75) + 
+  scale_x_continuous("Score diffence between 2017 and 2018") + 
+  geom_vline(xintercept = c(mean(year_diff_17_18),
+                            quantile(year_diff_17_18, 
+                                     probs = c(0.025, 0.975))),
+             colour = "red", 
+             linetype = "longdash") + 
+  geom_text(aes(5.11, 20, label = "mean = -763.72"), 
+            color = "red", 
+            size = 4) + 
+  geom_text(aes(9, 50, label = "SD = 4.46"), 
+            color = "blue", 
+            size = 4) + 
+  theme_bw( base_family = "serif") 
+
+````
+
+Evaluating model convergance
+````{r}
+plot(Model1_Stan, "rhat")
+````
+The R^ is essentially the ratio of between-chain variance to within-chain variance analogous to ANOVA. The R^ statistic should be less than 1.1 if the chains have converged. 
+
+````{r}
+plot(Model1_Stan, "ess")
+````
+
+
+
+
