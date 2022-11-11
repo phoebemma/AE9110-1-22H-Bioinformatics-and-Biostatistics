@@ -1,0 +1,81 @@
+---
+title: "AE9110-1-22H_Biostatistics_coursework"
+author: "Chidimma Echebiri"
+date: "2022-11-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Data source
+The  dataset used in this analyses was obtained from https://www.kaggle.com/datasets/konradb/norway-bicycle.
+I will be using Bayesian theorem to note the impact of rain and temperature on the number of bike rides in Norway for a period of time.
+
+I have the following hypotheses
+1. The number of bikes on the road each day is influenced by the temperature alone
+2. The number of bikes is influenced by how heavy the rain is
+3. The number of bikes in influenced by a combination of the three factors
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r}
+
+install.packages("rstan", repos = c("https://mc-stan.org/r-packages/", getOption("repos")))
+```
+
+```{r}
+library(rstan)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(magrittr)
+library(greta)
+library(tensorflow)
+library(bayesplot)
+library(readr)
+```
+
+```{r}
+rstan_options(auto_write = TRUE)
+```
+
+Loading the dataset
+```{r}
+bike_data <- readr::read_csv("./bikerides_day.csv")
+summary(bike_data)
+```
+
+Some data wrangling
+```{r}
+rownames(bike_data) = bike_data$Date
+```
+
+Plot the distribution of the bike data
+Volume = number of bikes in a day
+Rain is the depth of rainfall per day
+Temperature is the temperature that day
+```{r}
+plot(bike_data[-1])
+```
+Remove any missing data
+```{r}
+bike_data <- bike_data[complete.cases(bike_data),]
+
+```
+```{r}
+
+#Date <- as.integer(factor(bike_data$Date))
+```
+
+Define and standardize model vars
+```{r}
+Number_bikes <- as_data(scale(bike_data$Volume))
+Amount_rainfall <- as_data(scale(bike_data$Rain))
+Temperature <- as_data(scale(bike_data$Temp))
+```
+````{r}
+
+````
