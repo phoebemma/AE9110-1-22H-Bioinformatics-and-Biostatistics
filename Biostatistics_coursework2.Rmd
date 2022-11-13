@@ -5,16 +5,6 @@ date: "2022-11-11"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
 ```{r}
 library(mlmRev)
 library(lme4)
@@ -23,14 +13,11 @@ library(ggplot2)
 
 ```
 
+## Data source
+The  dataset used in this analyses was obtained from https://www.kaggle.com/datasets/konradb/norway-bicycles . It contains the number of bicycle rides in an unspecified part of Norway from November 2016 to May 2020
+I will be using Bayesian inference to estimate the impact of rain and temperature on the number of bike rides in Norway. 
+I will mainly be using the rstanarm package 
 
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
 
 ````{r}
 bike_data <- readr::read_csv("./bikerides_day.csv")
@@ -233,6 +220,38 @@ The R^ is essentially the ratio of between-chain variance to within-chain varian
 plot(Model1_Stan, "ess")
 ````
 
+Using bayesian glm
+````{r}
+stan_glm1 <- stan_glm(Volume ~  Rain + Temp,
+                      data = bike_data, family = neg_binomial_2(), seed = 12345)
+````
+
+````{r}
+summary(stan_glm1)
+````
+Print the point estimates and uncertainty of the model
+````{r}
+round(coef(stan_glm1), digits = 2)
+````
+
+````{r}
+stan_glm2 <- update(stan_glm1, family = neg_binomial_2)
+````
+`````{r}
+prop_zero <- function(y) mean(y == 0)
+(prop_zero_test1 <- pp_check(stan_glm1, plotfun = "stat", stat = "prop_zero"))
+
+````
+
+
+````{r}
+prop_zero_test2 <- pp_check(stan_glm2, plotfun = "stat", stat = "prop_zero",
+                            binwidth = 0.01)
+# Show graphs for Poisson and negative binomial side by side
+bayesplot_grid(prop_zero_test1 + ggtitle("Poisson"),
+               prop_zero_test2 + ggtitle("Negative Binomial"),
+               grid_args = list(ncol = 2))
+````
 
 
 
